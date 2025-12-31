@@ -1,0 +1,153 @@
+name: Visual Regression Tests
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  PYTHON_VERSION: '3.9'
+
+jobs:
+  visual-tests:
+    name: Run Percy Visual Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Full history for better Percy comparisons
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'  # Cache pip dependencies
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            wget \
+            gnupg \
+            unzip \
+            xvfb \
+            libxi6 \
+            libgconf-2-4
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@latest
+        with:
+          chrome-version: stable
+      
+      - name: Install ChromeDriver
+        uses: nanasess/setup-chromedriver@v2
+      
+      - name: Create screenshots directory
+        run: mkdir -p screenshots
+      
+      - name: Run visual regression tests
+        env:
+          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
+          BASE_URL: ${{ secrets.BASE_URL || 'https://www.example.com' }}
+        run: |
+          # Run tests with Percy
+          npx percy exec -- pytest tests/ \
+            -m visual \
+            -v \
+            --tb=short \
+            --maxfail=5 \
+            --junit-xml=test-results.xml
+      
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-results
+          path: |
+            test-results.xml
+            screenshots/
+      
+      - name: Publish test report
+        if: always()
+        uses: dorny/test-reporter@v1
+        with:
+          name: Visual Test Results
+          path: test-results.xml
+          reporter: java-junit
+          fail-on-error: false
+      
+      - name: Comment PR with Percy link
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const percyLink = 'https://percy.io/your-org/visual-regression-testing-suite';
+            const body = `## 🎨 Visual Regression Tests
+            
+            Percy visual comparison is ${context.payload.workflow_run?.conclusion || 'running'}!
+            
+            👀 [View Percy Build](${percyLink})
+            
+            This PR will be compared against the baseline from \`main\` branch.`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: body
+            });
+  
+  smoke-tests:
+    name: Quick Smoke Test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+      
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@latest
+      
+      - name: Install ChromeDriver  
+        uses: nanasess/setup-chromedriver@v2
+      
+      - name: Run smoke tests (no Percy)
+        env:
+          BASE_URL: ${{ secrets.BASE_URL || 'https://www.example.com' }}
+        run: |
+          # Run just smoke tests without Percy for quick feedback
+          pytest tests/ \
+            -m "visual and smoke" \
+            -v \
+            --tb=short
+      
+      - name: Comment on PR if smoke tests fail
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.name,
+              body: '⚠️ **Smoke tests failed!** Please check the basic functionality before running full visual regression suite.'
+            });

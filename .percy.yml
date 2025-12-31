@@ -1,0 +1,45 @@
+version: 2
+
+snapshot:
+  # Widths to capture
+  widths:
+    - 375   # Mobile
+    - 768   # Tablet  
+    - 1280  # Desktop
+    - 1920  # Large Desktop
+  
+  # Minimum height for snapshots
+  min-height: 1024
+  
+  # Percy-specific CSS to hide dynamic content
+  percy-css: |
+    /* Hide elements that change frequently */
+    .timestamp,
+    .live-counter,
+    .rotating-banner,
+    .current-time,
+    [data-testid="dynamic-content"] {
+      display: none !important;
+    }
+    
+    /* Stabilize animations */
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0s !important;
+      transition-duration: 0s !important;
+    }
+
+# Enable JavaScript
+enable-javascript: true
+
+# Static asset discovery
+static:
+  include:
+    - "**/*.css"
+    - "**/*.png"
+    - "**/*.jpg"
+    - "**/*.svg"
+  exclude:
+    - "**/node_modules/**"
+    - "**/venv/**"
